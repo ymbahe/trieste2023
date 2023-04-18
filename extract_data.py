@@ -3,6 +3,8 @@ import hydrangea as hy
 import os
 import h5py as h5
 
+from scipy.spatial import cKDTree
+
 from pdb import set_trace
 
 # Name of the output file -- one for everything
@@ -87,25 +89,35 @@ def find_galaxies(sim):
     m200 = fof.Group_M_Crit200
 
     # Now find galaxies...
-    mstar = hy.hdf5.read_data(sim.fgt_loc, 'Mstar30kpc')[:, isnap]
-    pos = hy.hdf5.read_data(sim.gps_loc, 'Centre')[:, isnap, :]
-    contflag = hy.hdf5.read_data(sim.fgt_loc, 'ContFlag')[:, isnap]
+    cantor_file = sim.high_level_dir + f'/Cantor/Cantor_{isnap:03d}.hdf5'
+
+    mstar = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4]
+    pos = hy.hdf5.read_data(cantor_file, 'Subhalo/Position')
+    gid = hy.hdf5.read_data(cantor_file, 'Subhalo/Galaxy')
+    gal_contflag = hy.hdf5.read_data(sim.fgt_loc, 'ContFlag')[:, isnap]
 
     cl_rad = np.linalg.norm(pos - cl_pos, axis=1)
     ind = np.nonzero(
-        (mstar > 9.0) & (contflag <= 1) & (cl_rad <= 10.0 * r200))[0]
-    print(f"Found {len(ind)} galaxies for simulation {sim.run_dir}.")
+        (mstar > 9.0) & (gal_contflag[gid] <= 1) & (cl_rad <= 10.0*r200))[0]
+    n_gal = len(ind)
+
+    print(f"Found {n_gal} galaxies for simulation {sim.run_dir}.")
 
     galaxy_data = {}
-    galaxy_data['ID'] = ind
+    galaxy_data['ID'] = gid[ind]
+    galaxy_data['CantorIndex'] = ind
+
     galaxy_data['ClusterCentricRadii'] = cl_rad[ind]
-    galaxy_data['M200'] = np.zeros(len(ind)) + m200
-    galaxy_data['R200'] = np.zeros(len(ind)) + r200
+    galaxy_data['M200'] = np.zeros(n_gal) + m200
+    galaxy_data['R200'] = np.zeros(n_gal) + r200
+    galaxy_data['Coordinates'] = pos[ind, :] - cl_pos
+    galaxy_data['Mstar'] = mstar[ind]
 
     # [TO DO: add other properties if needed]
 
     galaxy_data['sim'] = sim
-    
+    galaxy_data['Temp'] = {'ClusterCoordinates': cl_pos}
+
     return galaxy_data
 
 
@@ -119,12 +131,56 @@ def write_galaxy_data(sim_data):
 
 def get_catalog_data(sim_data):
     """Extract galaxy data directly from existing catalogues."""
-    pass
-    
+    sim = sim_data['sim']
+    gid = sim_data['ID']
+
+    # Subfind data (load from FullGalaxyTables)
+    sim_data['Mstar_Subfind_30kpc'] = 10.0**(
+        hy.hdf5.read_data(sim.fgt_loc, 'Mstar30kpc', read_index=gid)[:, isnap])
+    sim_data['R50star_Subfind'] = hy.hdf5.read_data(
+        sim.fgt_loc, 'StellarHalfMassRad', read_index=gid)[:, isnap]
+
+    # Cantor data
+    cantor_file = sim.high_level_dir + f'/Cantor/Cantor_{isnap:03d}.hdf5'
+
+    csh = sim_data['CantorIndex']
+    iextra = hy.hdf5.read_data(
+        cantor_file, 'Subhalo/Extra/ExtraIDs', read_index=csh)
+    ind_good = np.nonzero(iextra >= 0)[0]
+    sim_data['CantorFlag'] = np.zeros_like(sim_data['ID'])
+    sim_data['CantorFlag'][ind_good] = 1
+
+    sim_data['R50star_30kpc'] = hy.hdf5.read_data(
+        cantor_file, 'Subhalo/Extra/Stars/QuantileRadii',
+        read_index=iextra
+    )[:, 0, 1]
+    sim_data['Mstar_30kpc'] = hy.hdf5.read_data(
+        cantor_file, 'Subhalo/Extra/Stars/ApertureMasses',
+        read_index=iextra
+    )[:, 2]
+    sim_data['Cantor_iextra'] = iextra
+
 
 def determine_environment(sim_data):
-    """Determine the environment measurements of galaxïes."""
-    pass
+    """Determine the environment measurements of galaxies.
+    
+    Options: M_DM (excl particles in galaxy itself) within 500 (1000?) kpc
+    DM density profile over whole cluster
+    Fifth-nearest galaxy with M_star > 10^9 M_Sun
+    """
+    mstar_all = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4]
+    pos_all = hy.hdf5.read_data(cantor_file, 'Subhalo/Position')
+
+    tree_all = cKDTree(pos_all - sim_data['Temp']['ClusterCoordinates'])
+    #tree_targ = cKDTree(sim_data['Coordinates'])
+
+    n_gal = len(sim_data['ID'])
+    ngbs = tree_all.query(sim_data['Coordinates'], k=5)
+
+    set_trace()
+
+    for igal in range(n_gal):
+        pass
 
 
 def measure_sfr_properties(sim_data):
@@ -133,8 +189,11 @@ def measure_sfr_properties(sim_data):
 
 
 def measure_stellar_properties(sim_data):
-    """Measure the properties of the stars."""
-    pass
+    """Measure the properties of the stars.
+
+    2D stellar half-mass radius, anything else...?
+    """
+    
 
 
 def measure_hi_properties(sim_data):
