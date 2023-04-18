@@ -25,6 +25,8 @@ def main():
             continue
 
         sim_data = process_sim(isim)
+        del(sim_data['sim'])
+
         sim_data['Sim'] = np.zeros(len(sim_data['ID']), dtype=int) + isim
         
         if full_data is None:
@@ -102,6 +104,8 @@ def find_galaxies(sim):
 
     # [TO DO: add other properties if needed]
 
+    galaxy_data['sim'] = sim
+    
     return galaxy_data
 
 
