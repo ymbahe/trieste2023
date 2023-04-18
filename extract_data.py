@@ -28,7 +28,8 @@ def main():
 
         sim_data = process_sim(isim)
         del(sim_data['sim'])
-
+        del(sim_data['Temp'])
+        
         sim_data['Sim'] = np.zeros(len(sim_data['ID']), dtype=int) + isim
         
         if full_data is None:
@@ -92,7 +93,7 @@ def find_galaxies(sim):
     cantor_file = sim.high_level_dir + f'/Cantor/Cantor_{isnap:03d}.hdf5'
 
     mstar = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4] * 1e10
-    pos = hy.hdf5.read_data(cantor_file, 'Subhalo/Position')
+    pos = hy.hdf5.read_data(cantor_file, 'Subhalo/CentreOfPotential')
     gid = hy.hdf5.read_data(cantor_file, 'Subhalo/Galaxy')
     gal_contflag = hy.hdf5.read_data(sim.fgt_loc, 'ContFlag')[:, isnap]
 
@@ -173,7 +174,7 @@ def determine_environment(sim_data):
     cantor_file = sim.high_level_dir + f'/Cantor/Cantor_{isnap:03d}.hdf5'
 
     mstar_all = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4] * 1e10
-    pos_all = hy.hdf5.read_data(cantor_file, 'Subhalo/Position')
+    pos_all = hy.hdf5.read_data(cantor_file, 'Subhalo/CentreOfPotential')
 
     ind = np.nonzero(mstar_all > 1e9)[0]
 
@@ -181,12 +182,10 @@ def determine_environment(sim_data):
     #tree_targ = cKDTree(sim_data['Coordinates'])
 
     n_gal = len(sim_data['ID'])
-    ngbs = tree_all.query(sim_data['Coordinates'], k=5)
+    ngbs, ngb_inds = tree_all.query(sim_data['Coordinates'], k=6)
+    d5 = ngbs[:, -1]
 
-    set_trace()
-
-    for igal in range(n_gal):
-        pass
+    sim_data['Distance_5thNearestNgb'] = d5
 
 
 def measure_sfr_properties(sim_data):
