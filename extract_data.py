@@ -168,10 +168,12 @@ def determine_environment(sim_data):
     DM density profile over whole cluster
     Fifth-nearest galaxy with M_star > 10^9 M_Sun
     """
-    mstar_all = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4]
+    mstar_all = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4] * 1e10
     pos_all = hy.hdf5.read_data(cantor_file, 'Subhalo/Position')
 
-    tree_all = cKDTree(pos_all - sim_data['Temp']['ClusterCoordinates'])
+    ind = np.nonzero(mstar_all > 1e9)[0]
+
+    tree_all = cKDTree(pos_all[ind, :] - sim_data['Temp']['ClusterCoordinates'])
     #tree_targ = cKDTree(sim_data['Coordinates'])
 
     n_gal = len(sim_data['ID'])
