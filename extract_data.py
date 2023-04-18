@@ -91,14 +91,14 @@ def find_galaxies(sim):
     # Now find galaxies...
     cantor_file = sim.high_level_dir + f'/Cantor/Cantor_{isnap:03d}.hdf5'
 
-    mstar = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4]
+    mstar = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4] * 1e10
     pos = hy.hdf5.read_data(cantor_file, 'Subhalo/Position')
     gid = hy.hdf5.read_data(cantor_file, 'Subhalo/Galaxy')
     gal_contflag = hy.hdf5.read_data(sim.fgt_loc, 'ContFlag')[:, isnap]
 
     cl_rad = np.linalg.norm(pos - cl_pos, axis=1)
     ind = np.nonzero(
-        (mstar > 9.0) & (gal_contflag[gid] <= 1) & (cl_rad <= 10.0*r200))[0]
+        (mstar > 1e9) & (gal_contflag[gid] <= 1) & (cl_rad <= 10.0*r200))[0]
     n_gal = len(ind)
 
     print(f"Found {n_gal} galaxies for simulation {sim.run_dir}.")
@@ -168,6 +168,9 @@ def determine_environment(sim_data):
     DM density profile over whole cluster
     Fifth-nearest galaxy with M_star > 10^9 M_Sun
     """
+    sim = sim_data['sim']
+    cantor_file = sim.high_level_dir + f'/Cantor/Cantor_{isnap:03d}.hdf5'
+
     mstar_all = hy.hdf5.read_data(cantor_file, 'Subhalo/MassType')[:, 4]
     pos_all = hy.hdf5.read_data(cantor_file, 'Subhalo/Position')
 
