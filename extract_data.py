@@ -4,6 +4,7 @@ import os
 import h5py as h5
 
 from scipy.spatial import cKDTree
+from scipy.interpolate import CubicSpline
 
 from pdb import set_trace
 
@@ -188,6 +189,60 @@ def determine_environment(sim_data):
     sim_data['Distance_5thNearestNgb'] = d5
 
 
+    # ----------------
+    # Local DM density
+    # ----------------
+
+    rho_dm = np.zeros(n_gal)
+    snap_file = sim.get_snapshot_file(isnap)
+
+    cl_pos = sim_data['Temp']['ClusterCoordinates']
+    cantor_inds = sim_data['CantorIndex']
+
+    rmax_dm = hy.hdf5.read_data(
+        cantor_file, 'Subhalo/MaxRadiusType')[cantor_inds, 1]
+    mdm = hy.hdf5.read_data(
+        cantor_file, 'Subhalo/MassType')[cantor_inds, 1] * 1e10
+
+    for iigal in range(n_gal):
+
+        pos = sim_data['Coordinates'][iigal, :] + cl_pos
+        dm = hy.ReadRegion(snap_file, 1, pos, 1.0, shape='sphere', exact=True)
+        dm_tot = dm.total_in_region('Mass')
+
+        # Need to calculate the mass of DM in the aperture that belongs
+        # to the galaxy itself. This is easy if the galaxy is completely
+        # enclosed, otherwise it's a bit of a pain
+        if rmax_dm <= 1.0:
+            dm_gal = mdm[igal]
+        else:
+            dids = get_cantor_pids(sim, 1, ish=cantor_inds[iigal],
+                use_central=False)
+            ind_in_sphere, in_sphere = hy.crossref.find_id_indices(
+                    sids, dm.ParticleIDs)
+            dm_gal = len(in_sphere) * dm.m_dm
+
+        rho_dm[iigal] = dm_gal / (4/3 * np.pi)
+
+    sim_data['DM_Density'] = rho_dm
+
+    # DM density profile over whole cluster
+    lim_rad = 10.0 * sim_data['R200']
+    dm_cl = hy.ReadRegion(snap_file, 1, cl_pos, lim_rad,
+                          shape='sphere', exact=True)
+    dm_radii = np.linalg.norm(dm.cl['Coordinates'] - cl_pos, 1)
+
+    m_dm_bins, edges = np.histogram(
+        dm_radii, bins=np.arange(0, lim_rad+0.01, 0.1)) * dm.m_dm
+    mid = (edges[1:] + edges[:-1]) / 2
+    vol = 4/3 * np.pi * (edges[1:]**3 - edges[:-1]**3)
+    rho_dm_cl = m_dm_bins / vol
+
+    csi = CubicSpline(mid, rho_dm_cl)
+
+    sim_data['DM_ClusterDensity'] = csi(sim_data['ClusterCentricRadii'])
+
+
 def measure_sfr_properties(sim_data):
     """Measure the properties of star-forming gas."""
     pass
@@ -204,7 +259,76 @@ def measure_stellar_properties(sim_data):
 def measure_hi_properties(sim_data):
     """Measure properties of HI gas."""
     pass
-            
+
+
+def get_cantor_pids(
+    sim, ptype, igal=None, ish=None, use_central=True, isnap=29):
+    """Extract the particle IDs for all stars in one cluster.
+
+    Parameters
+    ----------
+    sim : Simulation object
+        The simulation to process.
+    ptype : int
+        The particle type for which to extract IDs.
+    igal : int, optional
+        The Galaxy ID of the cluster central. If None (default), `ish` must
+        be specified instead.
+    ish : int, optional
+        The Cantor subhalo index of the cluster central. If None (default),
+        `igal` must be specified.
+    use_central : bool, optional
+        If True (default), translate the specified galaxy into the (Cantor)
+        central.
+
+    Returns
+    -------
+    ids : ndarray(int)
+        The particle IDs of the particles in the selected galaxy.
+    igal : int
+        The galaxy ID of the galaxy actually analysed.
+    ish : int
+        The Cantor index of the galaxy actually analysed.
+    
+    """
+    if igal is None:
+        if ish is None:
+            raise ValueError("Must specify `ish` or `igal`!")
+        igal = hy.hdf5.read_data(
+            sim.high_level_dir + f'/Cantor/Cantor_{isnap:03d}.hdf5',
+            'Subhalo/Galaxy', read_index=ish
+        )
+
+    if use_central:
+        # Find the galaxy ID of the (corrected) central galaxy of the cluster
+        igal = hy.hdf5.read_data(
+            sim.high_level_dir + '/Cantor/GalaxyTables.hdf5', 'CentralGalaxy',
+            read_index=igal
+        )[isnap]
+        ish = None   # So we look it up fresh
+
+    if ish is None:
+        ish = hy.hdf5.read_data(
+            sim.high_level_dir + '/Cantor/GalaxyTables.hdf5', 'SubhaloIndex',
+            read_index=igal
+        )[isnap]
+    
+    # Extract the list of all particles in the target galaxy
+    cantor_base = sim.high_level_dir + f'/Cantor/Cantor_{isnap:03d}'
+    cantor_file = cantor_base + '.hdf5'
+    cantor_id_file = cantor_base + '_IDs.hdf5'
+
+    cl_offsets = hy.hdf5.read_data(
+        cantor_file, 'Subhalo/OffsetType', read_index=ish)
+    id_ind_start = cl_offsets[ptype]
+    id_ind_end = cl_offsets[ptype + 1]
+
+    cl_ids = hy.hdf5.read_data(
+        cantor_id_file, 'IDs',
+        read_index=np.arange(id_ind_start, id_ind_end, dtype=int)
+    )
+
+    return cl_ids, igal, ish
 
 if __name__ == "__main__":
     main()
