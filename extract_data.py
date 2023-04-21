@@ -208,32 +208,37 @@ def determine_environment(sim_data):
 
         pos = sim_data['Coordinates'][iigal, :] + cl_pos
         dm = hy.ReadRegion(snap_file, 1, pos, 1.0, shape='sphere', exact=True)
-        dm_tot = dm.total_in_region('Mass')
+        dm_tot = dm.num_particles_exact * dm.m_dm
 
         # Need to calculate the mass of DM in the aperture that belongs
         # to the galaxy itself. This is easy if the galaxy is completely
         # enclosed, otherwise it's a bit of a pain
-        if rmax_dm <= 1.0:
-            dm_gal = mdm[igal]
+        if rmax_dm[iigal] <= 1.0:
+            dm_gal = mdm[iigal]
         else:
-            dids = get_cantor_pids(sim, 1, ish=cantor_inds[iigal],
+            # Get the DM particle IDs that belong to the galaxy (including
+            # any that are outside the aperture), and then match them to the
+            # IDs of all particles within the aperture. The intersection is
+            # the number of DM particles of the galaxy within the aperture.
+            dids, galid, galshi = get_cantor_pids(sim, 1, ish=cantor_inds[iigal],
                 use_central=False)
             ind_in_sphere, in_sphere = hy.crossref.find_id_indices(
-                    sids, dm.ParticleIDs)
+                    dids, dm.ParticleIDs)
             dm_gal = len(in_sphere) * dm.m_dm
 
-        rho_dm[iigal] = dm_gal / (4/3 * np.pi)
+        rho_dm[iigal] = (dm_tot - dm_gal) / (4/3 * np.pi)
 
     sim_data['DM_Density'] = rho_dm
 
     # DM density profile over whole cluster
-    lim_rad = 10.0 * sim_data['R200']
+    lim_rad = 10.0 * sim_data['R200'][0]
     dm_cl = hy.ReadRegion(snap_file, 1, cl_pos, lim_rad,
                           shape='sphere', exact=True)
-    dm_radii = np.linalg.norm(dm.cl['Coordinates'] - cl_pos, 1)
+    dm_radii = np.linalg.norm(dm_cl.Coordinates - cl_pos, 1)
 
     m_dm_bins, edges = np.histogram(
-        dm_radii, bins=np.arange(0, lim_rad+0.01, 0.1)) * dm.m_dm
+        dm_radii, bins=np.arange(0, lim_rad+0.01, 0.1))
+    m_dm_bins = m_dm_bins * dm.m_dm
     mid = (edges[1:] + edges[:-1]) / 2
     vol = 4/3 * np.pi * (edges[1:]**3 - edges[:-1]**3)
     rho_dm_cl = m_dm_bins / vol
